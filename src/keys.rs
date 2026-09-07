@@ -4,6 +4,7 @@ use crate::error::{Error, Result};
 
 /// A decoded key press received from the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Key {
     /// A printable character.
     Char(char),
@@ -94,18 +95,25 @@ where
             }
         }
         0x20..=0x7E => Key::Char(b as char),
+        #[cfg(feature = "unicode")]
         0xC2..=0xDF => match read_utf8_char(reader, pending, b, 2).await? {
             Some(c) => Key::Char(c),
             None => return Ok(None),
         },
+        #[cfg(feature = "unicode")]
         0xE0..=0xEF => match read_utf8_char(reader, pending, b, 3).await? {
             Some(c) => Key::Char(c),
             None => return Ok(None),
         },
+        #[cfg(feature = "unicode")]
         0xF0..=0xF7 => match read_utf8_char(reader, pending, b, 4).await? {
             Some(c) => Key::Char(c),
             None => return Ok(None),
         },
+        // Without the `unicode` feature, high bytes pass through as
+        // individual Latin-1 characters (no UTF-8 continuation decoding).
+        #[cfg(not(feature = "unicode"))]
+        0x80..=0xFF => Key::Char(b as char),
         // Unmapped control character.
         _ => return Ok(None),
     };
@@ -115,6 +123,7 @@ where
 
 /// Read `len - 1` continuation bytes after `lead` and decode one UTF-8
 /// character. Returns `None` on EOF or for invalid sequences.
+#[cfg(feature = "unicode")]
 async fn read_utf8_char<R>(
     reader: &mut R,
     pending: &mut Option<u8>,

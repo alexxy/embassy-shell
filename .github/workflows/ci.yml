@@ -42,6 +42,10 @@ jobs:
         include:
           - name: host (clippy + tests)
             args: clippy --workspace --all-targets -- -D warnings
+          - name: host (no default features)
+            args: clippy --no-default-features --all-targets -- -D warnings
+          - name: host (defmt)
+            args: clippy --features defmt --all-targets -- -D warnings
           - name: thumbv7em-none-eabihf
             args: check --target thumbv7em-none-eabihf
           - name: riscv32imac-unknown-none-elf

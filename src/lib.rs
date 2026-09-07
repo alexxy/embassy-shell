@@ -78,6 +78,19 @@
 //! }
 //! ```
 //!
+//! # Cargo features
+//!
+//! * `unicode` *(enabled by default)* — decode multi-byte UTF-8 sequences
+//!   typed at the prompt. Disabling it removes the UTF-8 continuation
+//!   reader from the input path and saves flash; bytes `>= 0x80` are then
+//!   treated as individual Latin-1 characters, so real UTF-8 input (e.g.
+//!   pasted non-ASCII text) will be garbled on display. Command handling
+//!   itself is byte-oriented and unaffected.
+//! * `defmt` *(disabled by default)* — emit trace-level logs (received
+//!   keys, dispatched commands, completion counts) via
+//!   [`defmt`](https://docs.rs/defmt). Enable with
+//!   `embassy-shell = { version = "...", features = ["defmt"] }`.
+//!
 //! # Notes and limitations
 //!
 //! * Command handlers return [`BoxFuture`] (wrap an `async move` block in
@@ -95,6 +108,20 @@
 #![forbid(unsafe_code)]
 
 extern crate alloc;
+
+/// Internal trace logging: compiles to `defmt::trace!` with the `defmt`
+/// feature, to nothing otherwise.
+#[cfg(feature = "defmt")]
+macro_rules! log {
+    ($s:literal $(, $arg:expr)*) => {
+        defmt::trace!($s $(, $arg)*)
+    };
+}
+
+#[cfg(not(feature = "defmt"))]
+macro_rules! log {
+    ($($tt:tt)*) => {};
+}
 
 mod command;
 mod error;

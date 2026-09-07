@@ -32,6 +32,18 @@ impl From<ErrorKind> for Error {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Error {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        match self {
+            // `embedded_io::ErrorKind` does not implement `defmt::Format`,
+            // so the kind is not carried on the wire.
+            Error::Io(_) => defmt::write!(f, "io error"),
+            Error::Other => defmt::write!(f, "shell error"),
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

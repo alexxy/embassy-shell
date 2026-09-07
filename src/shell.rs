@@ -219,8 +219,10 @@ impl<'a> Shell<'a> {
         loop {
             let Some(key) = read_key(reader, &mut pending).await? else {
                 // End of input.
+                log!("input eof");
                 return Ok(());
             };
+            log!("key: {}", key);
 
             match key {
                 Key::Char(c) => {
@@ -242,6 +244,7 @@ impl<'a> Shell<'a> {
                     draft.clear();
 
                     if !line.trim().is_empty() {
+                        log!("line: {}", line.as_str());
                         self.push_history(&line);
                         let tokens = tokenize(&line);
                         match self.exec(&tokens, reader, &mut pending, writer).await? {
@@ -429,6 +432,7 @@ impl<'a> Shell<'a> {
             }
         };
 
+        log!("completion: {} candidates for {}", candidates.len(), prefix);
         if candidates.is_empty() {
             return Ok(());
         }
@@ -503,6 +507,7 @@ impl<'a> Shell<'a> {
                 }
             }
             _ => {
+                log!("unknown command: {}", name);
                 io.println(&format!("{name}: command not found")).await?;
             }
         }
@@ -562,6 +567,7 @@ impl<'a> Shell<'a> {
                     .await?;
             }
             Step::Interrupted => {
+                log!("{}: interrupted", cmd.name.as_str());
                 Io::new(writer).print("^C\r\n").await?;
             }
             Step::Eof => return Ok(ExecOutcome::Eof),

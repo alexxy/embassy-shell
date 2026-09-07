@@ -19,7 +19,8 @@ Think [`ushell`](https://github.com/dotcypress/ushell), but alive, native
 
 * **Bash-like line editing** — cursor keys, `Home`/`End`, `Delete`,
   `Backspace`, `Ctrl-U` (kill line), `Ctrl-W` (delete word), `Ctrl-L`
-  (clear screen), UTF-8 input.
+  (clear screen), UTF-8 input (can be disabled to save flash, see
+  [Cargo features](#cargo-features)).
 * **Tab completion** — completes command names; per-command argument
   completion from fixed option lists or custom callbacks. Inserts the common
   prefix and lists candidates when ambiguous, like bash.
@@ -34,6 +35,18 @@ Think [`ushell`](https://github.com/dotcypress/ushell), but alive, native
 * Only `embedded-io` + `embedded-io-async` as dependencies. Uses `alloc`
   (a global allocator is required). Not `Send`-bound, which matches
   embassy's per-core executor model.
+
+## Cargo features
+
+| feature | default | description |
+|---------|---------|-------------|
+| `unicode` | yes | Decode multi-byte UTF-8 sequences typed at the prompt. Turning it off removes the UTF-8 reader from the input path (~1 KB of flash on Cortex-M); bytes `>= 0x80` are then treated as individual Latin-1 characters, so pasted UTF-8 will be garbled on display. Command handling itself is byte-oriented and unaffected. |
+| `defmt` | no | Emit trace-level logs (received keys, dispatched commands, completion counts) via [`defmt`](https://docs.rs/defmt). Zero cost when disabled. |
+
+```toml
+# Lean configuration: no UTF-8 decoding, no logging.
+embassy-shell = { version = "0.1", default-features = false }
+```
 
 ## Quick start
 

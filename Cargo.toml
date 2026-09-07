@@ -22,9 +22,21 @@ exclude = [
     "examples/esp32c3-usb",
 ]
 
+[features]
+default = ["unicode"]
+# UTF-8 decoding of terminal input. Disable to save flash; input bytes
+# >= 0x80 are then treated as individual Latin-1 characters.
+unicode = []
+# Emit trace-level logs via defmt.
+defmt = ["dep:defmt"]
+
 [dependencies]
 embedded-io = "0.7"
 embedded-io-async = "0.7"
+defmt = { version = "1", optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dev-dependencies]
 futures = "0.3"
