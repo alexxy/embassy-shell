@@ -1,5 +1,12 @@
 # embassy-shell
 
+[![crates.io](https://img.shields.io/crates/v/embassy-shell.svg)](https://crates.io/crates/embassy-shell)
+[![docs.rs](https://img.shields.io/docsrs/embassy-shell/latest)](https://docs.rs/embassy-shell)
+[![CI](https://github.com/alexxy/embassy-shell/actions/workflows/ci.yml/badge.svg)](https://github.com/alexxy/embassy-shell/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE-APACHE)
+
+
 A small `no_std` interactive shell in the spirit of bash, built for
 [embassy](https://embassy.dev) (any async executor works) and any
 transport implementing [`embedded-io-async`](https://docs.rs/embedded-io-async)
