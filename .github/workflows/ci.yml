@@ -44,11 +44,16 @@ jobs:
             args: clippy --workspace --all-targets -- -D warnings
           - name: thumbv7em-none-eabihf
             args: check --target thumbv7em-none-eabihf
+          - name: riscv32imac-unknown-none-elf
+            args: check --target riscv32imac-unknown-none-elf
+          # No atomics/M extension: guards against accidentally using them.
+          - name: riscv32imc-unknown-none-elf
+            args: check --target riscv32imc-unknown-none-elf
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: thumbv7em-none-eabihf
+          targets: thumbv7em-none-eabihf, riscv32imac-unknown-none-elf, riscv32imc-unknown-none-elf
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: cargo ${{ matrix.args }}
