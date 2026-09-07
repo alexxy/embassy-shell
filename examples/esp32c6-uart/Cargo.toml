@@ -1,0 +1,56 @@
+[package]
+name = "esp32c6-uart"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone workspace: the examples build with different targets/toolchains
+# than the library itself.
+[workspace]
+
+[dependencies]
+embassy-shell = { path = "../.." }
+
+esp-hal = { version = "~1.1.0", features = ["esp32c6", "unstable"] }
+esp-rtos = { version = "0.3.0", features = ["embassy", "esp-alloc", "esp32c6"] }
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6"] }
+esp-alloc = "0.10.0"
+
+embassy-executor = "0.10.0"
+embassy-time = "0.5.1"
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
+
+embedded-io = "0.7"
+embedded-io-async = "0.7"
+
+critical-section = "1.2.0"
+panic-halt = "1.0"
+
+defmt = { version = "1", optional = true }
+defmt-rtt = { version = "1", optional = true }
+
+[features]
+default = ["defmt"]
+defmt = [
+    "dep:defmt",
+    "dep:defmt-rtt",
+    "esp-hal/defmt",
+    "esp-rtos/defmt",
+    "esp-bootloader-esp-idf/defmt",
+    "esp-alloc/defmt",
+    "embassy-executor/defmt",
+    "embassy-time/defmt",
+    "embassy-sync/defmt",
+    "embassy-futures/defmt",
+    "embedded-io/defmt",
+    "embedded-io-async/defmt",
+]
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+debug = 2

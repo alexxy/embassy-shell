@@ -1,0 +1,46 @@
+[package]
+name = "nanoch32v305-usb"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone workspace: the examples build with different targets/toolchains
+# than the library itself.
+[workspace]
+
+[dependencies]
+embassy-shell = { path = "../.." }
+
+ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "07663312c9da6b9962e8699a917c623bc833972e", features = [
+    "ch32v305rbt6",
+    "memory-x",
+    "embassy",
+    "rt",
+] }
+
+embassy-executor = { version = "0.10.0", features = ["executor-thread", "platform-spin"] }
+embassy-time = "0.5.1"
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
+embassy-usb = "0.6.0"
+# ch32-hal requires embassy-usb-driver 0.2.x; pin to the exact version it uses.
+embassy-usb-driver = "=0.2.2"
+
+embedded-alloc = "0.7.0"
+embedded-io = "0.7"
+embedded-io-async = "0.7"
+
+qingke = "0.7"
+qingke-rt = "0.7"
+panic-halt = "1.0"
+defmt = "1"
+defmt-rtt = "1"
+
+portable-atomic = { version = "1", default-features = false, features = ["critical-section"] }
+critical-section = "1.2.0"
+
+[profile.dev]
+opt-level = 2
+
+[profile.release]
+opt-level = "z"
+lto = true

@@ -1,0 +1,10 @@
+[build]
+target = "riscv32imac-unknown-none-elf"
+
+[target.riscv32imac-unknown-none-elf]
+# --connect-under-reset is required because the firmware claims the same
+# USB Serial/JTAG peripheral that the built-in probe attaches to.
+runner = "probe-rs run --chip esp32c6 --connect-under-reset"
+
+[env]
+DEFMT_LOG = "info"

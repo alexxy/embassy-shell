@@ -1,0 +1,8 @@
+[build]
+target = "riscv32imc-unknown-none-elf"
+
+[target.riscv32imc-unknown-none-elf]
+runner = "probe-rs run --chip esp32c3"
+
+[env]
+DEFMT_LOG = "info"

@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  DEFMT_LOG: info
+
+jobs:
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt (library)
+        run: cargo fmt --all --check
+      - name: cargo fmt (examples)
+        run: |
+          set -e
+          for dir in examples/*/; do
+            echo "==> fmt $dir"
+            (cd "$dir" && cargo fmt --check)
+          done
+
+  library:
+    name: Library (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: host (clippy + tests)
+            args: clippy --workspace --all-targets -- -D warnings
+          - name: thumbv7em-none-eabihf
+            args: check --target thumbv7em-none-eabihf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo ${{ matrix.args }}
+        run: cargo ${{ matrix.args }}
+
+  doc:
+    name: Documentation
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --no-deps
+
+  examples:
+    name: ${{ matrix.dir }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: examples/stm32f411-uart
+            toolchain: stable
+            targets: thumbv7em-none-eabihf
+          - dir: examples/stm32f411-usb
+            toolchain: stable
+            targets: thumbv7em-none-eabihf
+          - dir: examples/nanoch32v305-uart
+            toolchain: nightly
+          - dir: examples/nanoch32v305-usb
+            toolchain: nightly
+          - dir: examples/esp32c6-uart
+            toolchain: stable
+            targets: riscv32imac-unknown-none-elf
+            no_default_features: true
+          - dir: examples/esp32c6-usb
+            toolchain: stable
+            targets: riscv32imac-unknown-none-elf
+            no_default_features: true
+          - dir: examples/esp32c3-uart
+            toolchain: stable
+            targets: riscv32imc-unknown-none-elf
+            no_default_features: true
+          - dir: examples/esp32c3-usb
+            toolchain: stable
+            targets: riscv32imc-unknown-none-elf
+            no_default_features: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy
+          targets: ${{ matrix.targets }}
+          # nanoch32v305 uses a custom target spec + build-std; its
+          # rust-toolchain.toml selects nightly and rust-src.
+      - name: Add rust-src (custom-target builds)
+        if: ${{ startsWith(matrix.dir, 'examples/nanoch32v305') }}
+        run: rustup component add rust-src --toolchain nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.dir }}
+      - name: cargo clippy
+        working-directory: ${{ matrix.dir }}
+        run: cargo clippy -- -D warnings
+      - name: cargo clippy (--no-default-features)
+        if: ${{ matrix.no_default_features }}
+        working-directory: ${{ matrix.dir }}
+        run: cargo clippy --no-default-features -- -D warnings
+      - name: cargo build
+        working-directory: ${{ matrix.dir }}
+        run: cargo build

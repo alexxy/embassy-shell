@@ -1,0 +1,38 @@
+[package]
+name = "stm32f411-uart"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone workspace: the examples build with different targets/toolchains
+# than the library itself.
+[workspace]
+
+[dependencies]
+embassy-shell = { path = "../.." }
+
+embassy-executor = { version = "0.10.0", features = ["executor-thread", "platform-cortex-m"] }
+embassy-time = "0.5.1"
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
+embassy-stm32 = { version = "0.6.0", features = [
+    "stm32f411ce",
+    "memory-x",
+    "time-driver-tim4",
+] }
+
+embedded-alloc = "0.7.0"
+embedded-io = "0.7"
+embedded-io-async = "0.7"
+
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+critical-section = "1.1"
+stm32-metapac = "21.0.0"
+cortex-m-rt = "0.7.0"
+panic-halt = "1.0"
+defmt = "1"
+defmt-rtt = "1"
+spwm = "0.1.6"
+
+[profile.release]
+opt-level = "z"
+lto = true

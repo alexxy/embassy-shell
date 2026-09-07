@@ -1,0 +1,31 @@
+[package]
+name = "embassy-shell"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "no_std async interactive shell for embassy: bash-like line editing, tab completion and history over any embedded-io-async transport (UART, USB CDC)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alexxy/embassy-shell"
+keywords = ["embedded", "shell", "embassy", "no_std", "cli"]
+categories = ["embedded", "no-std", "command-line-interface"]
+
+[workspace]
+members = ["."]
+exclude = [
+    "examples/stm32f411-uart",
+    "examples/stm32f411-usb",
+    "examples/nanoch32v305-uart",
+    "examples/nanoch32v305-usb",
+    "examples/esp32c6-uart",
+    "examples/esp32c6-usb",
+    "examples/esp32c3-uart",
+    "examples/esp32c3-usb",
+]
+
+[dependencies]
+embedded-io = "0.7"
+embedded-io-async = "0.7"
+
+[dev-dependencies]
+futures = "0.3"
+embedded-io-async = { version = "0.7", features = ["alloc"] }
