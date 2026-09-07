@@ -22,11 +22,15 @@ jobs:
       - name: cargo fmt (library)
         run: cargo fmt --all --check
       - name: cargo fmt (examples)
+        # `+stable` pins rustfmt to the stable toolchain: some examples pin
+        # nightly in their rust-toolchain.toml (for build-std), where rustfmt
+        # is not necessarily installed on the runner. Formatting is checked
+        # uniformly with stable rustfmt.
         run: |
           set -e
           for dir in examples/*/; do
             echo "==> fmt $dir"
-            (cd "$dir" && cargo fmt --check)
+            (cd "$dir" && cargo +stable fmt --check)
           done
 
   library:
