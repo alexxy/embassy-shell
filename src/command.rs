@@ -67,9 +67,17 @@ pub(crate) type Handler<'a> =
 /// list of candidate replacements for that token.
 pub(crate) type Completer<'a> = Box<dyn Fn(usize, &str) -> Vec<String> + 'a>;
 
+/// How a command completes its arguments. Fixed option lists are stored
+/// directly (no boxed closure, no heap candidates), keeping completion of
+/// `add_command_with_options` commands allocation-free.
+pub(crate) enum CompleterKind<'a> {
+    Options(&'static [&'static str]),
+    Custom(Completer<'a>),
+}
+
 pub(crate) struct Command<'a> {
     pub name: String,
     pub help: &'static str,
     pub handler: Handler<'a>,
-    pub completer: Option<Completer<'a>>,
+    pub completer: Option<CompleterKind<'a>>,
 }

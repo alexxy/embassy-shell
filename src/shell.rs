@@ -1,18 +1,31 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use core::pin::pin;
 use core::task::Poll;
 
-use crate::command::{Args, Command};
+use crate::command::{Args, Command, CompleterKind};
 use crate::error::Result;
 use crate::io::Io;
 use crate::keys::{Key, read_key};
-use crate::parse::{common_prefix, next_char_boundary, prev_char_boundary, tokenize};
-use crate::util::poll_fn;
+use crate::parse::{common_prefix, next_char_boundary, prev_char_boundary, tokenize_into};
+use crate::util::{StackWriter, poll_fn};
+
+/// Used to emulate `{:<12}` / `{:>4}` padding in `help`/`history` without
+/// allocating via `format!`.
+const PADDING: &str = "            ";
+
+/// Build an ANSI cursor-move sequence `ESC [ n dir` without `core::fmt`.
+fn cursor_move<const N: usize>(n: usize, dir: u8) -> StackWriter<N> {
+    let mut w = StackWriter::<N>::new();
+    w.push(0x1b);
+    w.push(b'[');
+    w.push_usize(n);
+    w.push(dir);
+    w
+}
 
 /// Commands handled by the shell itself. Shown in `help` and completed at the
 /// prompt unless a user command shadows one of them.
@@ -64,6 +77,8 @@ pub struct Shell<'a> {
     commands: Vec<Command<'a>>,
     history: VecDeque<String>,
     max_history: usize,
+    max_history_len: usize,
+    max_line_len: usize,
     prompt: &'static str,
 }
 
@@ -80,6 +95,8 @@ impl<'a> Shell<'a> {
             commands: Vec::new(),
             history: VecDeque::new(),
             max_history: 32,
+            max_history_len: 64,
+            max_line_len: 128,
             prompt: "embassy> ",
         }
     }
@@ -93,6 +110,23 @@ impl<'a> Shell<'a> {
     /// Set the maximum number of remembered history entries.
     pub fn max_history(&mut self, n: usize) -> &mut Self {
         self.max_history = n;
+        self
+    }
+
+    /// Set the maximum length (in bytes) of a remembered history entry.
+    /// Longer lines are truncated (at a character boundary) before being
+    /// stored. Defaults to 64; `0` disables history storage of content
+    /// beyond the empty string.
+    pub fn max_history_len(&mut self, n: usize) -> &mut Self {
+        self.max_history_len = n;
+        self
+    }
+
+    /// Set the maximum length (in bytes) of a line typed at the prompt.
+    /// Once the buffer is full, further characters are rejected with a `BEL`
+    /// (`\x07`). Defaults to 128.
+    pub fn max_line_len(&mut self, n: usize) -> &mut Self {
+        self.max_line_len = n;
         self
     }
 
@@ -141,17 +175,7 @@ impl<'a> Shell<'a> {
             name: String::from(name),
             help,
             handler: Box::new(handler),
-            completer: Some(Box::new(move |index: usize, prefix: &str| {
-                if index == 1 {
-                    options
-                        .iter()
-                        .filter(|o| o.starts_with(prefix))
-                        .map(|o| String::from(*o))
-                        .collect()
-                } else {
-                    Vec::new()
-                }
-            })),
+            completer: Some(CompleterKind::Options(options)),
         });
     }
 
@@ -172,7 +196,7 @@ impl<'a> Shell<'a> {
             name: String::from(name),
             help,
             handler: Box::new(handler),
-            completer: Some(Box::new(completer)),
+            completer: Some(CompleterKind::Custom(Box::new(completer))),
         });
     }
 
@@ -213,6 +237,9 @@ impl<'a> Shell<'a> {
         let mut cursor: usize = 0;
         let mut hist_idx: usize = 0;
         let mut draft = String::new();
+        // Token slots are reused across lines: after the longest line ever
+        // executed, tokenization stops allocating.
+        let mut tokens: Vec<String> = Vec::new();
 
         Io::new(writer).print(self.prompt).await?;
 
@@ -226,32 +253,42 @@ impl<'a> Shell<'a> {
 
             match key {
                 Key::Char(c) => {
-                    let at_end = cursor == buf.len();
-                    let mut tmp = [0u8; 4];
-                    let s = c.encode_utf8(&mut tmp);
-                    buf.insert_str(cursor, s);
-                    cursor += s.len();
-                    if at_end {
-                        Io::new(writer).print(s).await?;
+                    if buf.len() + c.len_utf8() > self.max_line_len {
+                        // Line buffer is full: beep and drop the character.
+                        Io::new(writer).print("\x07").await?;
                     } else {
-                        self.redraw(writer, &buf, cursor).await?;
+                        let at_end = cursor == buf.len();
+                        let mut tmp = [0u8; 4];
+                        let s = c.encode_utf8(&mut tmp);
+                        buf.insert_str(cursor, s);
+                        cursor += s.len();
+                        if at_end {
+                            Io::new(writer).print(s).await?;
+                        } else {
+                            self.redraw(writer, &buf, cursor).await?;
+                        }
                     }
                 }
                 Key::Enter => {
                     Io::new(writer).print("\r\n").await?;
-                    let line = core::mem::take(&mut buf);
-                    cursor = 0;
-                    draft.clear();
 
-                    if !line.trim().is_empty() {
-                        log!("line: {}", line.as_str());
-                        self.push_history(&line);
-                        let tokens = tokenize(&line);
-                        match self.exec(&tokens, reader, &mut pending, writer).await? {
+                    if !buf.trim().is_empty() {
+                        log!("line: {}", buf.as_str());
+                        self.push_history(&buf);
+                        let n = tokenize_into(&buf, &mut tokens);
+                        match self
+                            .exec(&tokens[..n], reader, &mut pending, writer)
+                            .await?
+                        {
                             ExecOutcome::Done => {}
                             ExecOutcome::Eof => return Ok(()),
                         }
                     }
+                    // Clear (rather than replace) so the buffer's capacity is
+                    // reused by the next line.
+                    buf.clear();
+                    cursor = 0;
+                    draft.clear();
                     hist_idx = self.history.len();
                     Io::new(writer).print(self.prompt).await?;
                 }
@@ -285,14 +322,18 @@ impl<'a> Shell<'a> {
                 Key::Home => {
                     if cursor > 0 {
                         let n = buf[..cursor].chars().count();
-                        Io::new(writer).print(&format!("\x1b[{n}D")).await?;
+                        Io::new(writer)
+                            .write_all(cursor_move::<16>(n, b'D').as_bytes())
+                            .await?;
                         cursor = 0;
                     }
                 }
                 Key::End => {
                     if cursor < buf.len() {
                         let n = buf[cursor..].chars().count();
-                        Io::new(writer).print(&format!("\x1b[{n}C")).await?;
+                        Io::new(writer)
+                            .write_all(cursor_move::<16>(n, b'C').as_bytes())
+                            .await?;
                         cursor = buf.len();
                     }
                 }
@@ -357,6 +398,12 @@ impl<'a> Shell<'a> {
     }
 
     fn push_history(&mut self, line: &str) {
+        // Store at most `max_history_len` bytes, cut at a char boundary.
+        let mut end = line.len().min(self.max_history_len);
+        while end > 0 && !line.is_char_boundary(end) {
+            end -= 1;
+        }
+        let line = &line[..end];
         if self.history.back().map(|h| h == line).unwrap_or(false) {
             return;
         }
@@ -371,16 +418,19 @@ impl<'a> Shell<'a> {
     where
         W: embedded_io_async::Write,
     {
-        let tail = buf[cursor..].chars().count();
-        let mut out = String::from("\r");
-        out.push_str(self.prompt);
-        out.push_str(buf);
+        // Rendered as several small writes instead of one allocated string.
+        let mut io = Io::new(writer);
+        io.print("\r").await?;
+        io.print(self.prompt).await?;
+        io.print(buf).await?;
         // Erase any leftovers from the previous render.
-        out.push_str("\x1b[K");
+        io.print("\x1b[K").await?;
+        let tail = buf[cursor..].chars().count();
         if tail > 0 {
-            out.push_str(&format!("\x1b[{tail}D"));
+            io.write_all(cursor_move::<16>(tail, b'D').as_bytes())
+                .await?;
         }
-        Io::new(writer).print(&out).await
+        Ok(())
     }
 
     /// Tab completion for the token under the cursor (which must be at the
@@ -406,16 +456,19 @@ impl<'a> Shell<'a> {
         };
         let prefix_len = prefix.len();
 
-        let candidates: Vec<String> = if tok_index == 0 {
-            let mut cands: Vec<String> = self
+        // Candidates are borrowed where possible; custom completers still
+        // return owned Strings, kept alive by `owned`.
+        let owned: Vec<String>;
+        let candidates: Vec<&str> = if tok_index == 0 {
+            let mut cands: Vec<&str> = self
                 .commands
                 .iter()
                 .filter(|c| c.name.starts_with(prefix))
-                .map(|c| c.name.clone())
+                .map(|c| c.name.as_str())
                 .collect();
             for (name, _) in BUILTINS {
                 if name.starts_with(prefix) && !self.commands.iter().any(|c| c.name == name) {
-                    cands.push(String::from(name));
+                    cands.push(name);
                 }
             }
             cands
@@ -427,7 +480,15 @@ impl<'a> Shell<'a> {
                 .find(|c| c.name == first)
                 .and_then(|c| c.completer.as_ref())
             {
-                Some(completer) => completer(tok_index, prefix),
+                Some(CompleterKind::Options(options)) => options
+                    .iter()
+                    .filter(|o| o.starts_with(prefix))
+                    .copied()
+                    .collect(),
+                Some(CompleterKind::Custom(completer)) => {
+                    owned = completer(tok_index, prefix);
+                    owned.iter().map(String::as_str).collect()
+                }
                 None => Vec::new(),
             }
         };
@@ -439,7 +500,7 @@ impl<'a> Shell<'a> {
 
         if candidates.len() == 1 {
             buf.truncate(buf.len() - prefix_len);
-            buf.push_str(&candidates[0]);
+            buf.push_str(candidates[0]);
             // Bash appends a space after a unique completion.
             buf.push(' ');
             *cursor = buf.len();
@@ -447,8 +508,7 @@ impl<'a> Shell<'a> {
         }
 
         // Multiple candidates: insert the common prefix, then list them all.
-        let refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
-        let cp = common_prefix(&refs);
+        let cp = common_prefix(&candidates);
         if cp.len() > prefix_len {
             buf.truncate(buf.len() - prefix_len);
             buf.push_str(cp);
@@ -457,7 +517,7 @@ impl<'a> Shell<'a> {
 
         let mut io = Io::new(writer);
         io.print("\r\n").await?;
-        for (i, cand) in candidates.iter().enumerate() {
+        for (i, &cand) in candidates.iter().enumerate() {
             if i > 0 {
                 io.print("  ").await?;
             }
@@ -489,12 +549,19 @@ impl<'a> Shell<'a> {
         match name {
             "help" => {
                 for cmd in &self.commands {
-                    io.println(&format!("  {:<12}{}", cmd.name, cmd.help))
-                        .await?;
+                    let pad = &PADDING[..12usize.saturating_sub(cmd.name.chars().count())];
+                    io.print("  ").await?;
+                    io.print(&cmd.name).await?;
+                    io.print(pad).await?;
+                    io.println(cmd.help).await?;
                 }
                 for (bname, bhelp) in BUILTINS {
                     if !self.commands.iter().any(|c| c.name == bname) {
-                        io.println(&format!("  {bname:<12}{bhelp}")).await?;
+                        let pad = &PADDING[..12usize.saturating_sub(bname.chars().count())];
+                        io.print("  ").await?;
+                        io.print(bname).await?;
+                        io.print(pad).await?;
+                        io.println(bhelp).await?;
                     }
                 }
             }
@@ -503,12 +570,20 @@ impl<'a> Shell<'a> {
             }
             "history" => {
                 for (i, entry) in self.history.iter().enumerate() {
-                    io.println(&format!("{:>4}  {}", i + 1, entry)).await?;
+                    let mut w = StackWriter::<8>::new();
+                    w.push_usize(i + 1);
+                    let num = w.as_bytes();
+                    io.print(&PADDING[..4usize.saturating_sub(num.len())])
+                        .await?;
+                    io.write_all(num).await?;
+                    io.print("  ").await?;
+                    io.println(entry).await?;
                 }
             }
             _ => {
                 log!("unknown command: {}", name);
-                io.println(&format!("{name}: command not found")).await?;
+                io.print(name).await?;
+                io.println(": command not found").await?;
             }
         }
         Ok(ExecOutcome::Done)
@@ -562,9 +637,10 @@ impl<'a> Shell<'a> {
         match outcome {
             Step::Done(Ok(())) => {}
             Step::Done(Err(e)) => {
-                Io::new(writer)
-                    .println(&format!("{}: {}", cmd.name, e))
-                    .await?;
+                let mut io = Io::new(writer);
+                io.print(&cmd.name).await?;
+                io.print(": ").await?;
+                io.println(e.message()).await?;
             }
             Step::Interrupted => {
                 log!("{}: interrupted", cmd.name.as_str());
@@ -775,5 +851,30 @@ mod tests {
         // Left, Backspace => "echo ", Enter (no args) prints empty line.
         let out = run(&mut sh, b"ech o\x1b[D\x7f\r\n");
         assert!(!out.contains("command not found"), "{out}");
+    }
+
+    #[test]
+    fn line_cap_rejects_with_bell() {
+        let mut sh = Shell::new();
+        sh.max_line_len(5);
+        echo_cmd(&mut sh);
+        // "echo " fills the 5-byte cap; the argument is rejected with BELs
+        // and never reaches the command.
+        let out = run(&mut sh, b"echo hello\r\n");
+        assert!(out.contains('\u{7}'), "{out:?}");
+        assert!(!out.contains("hello"), "{out:?}");
+        assert!(!out.contains("command not found"), "{out:?}");
+    }
+
+    #[test]
+    fn history_entry_truncated() {
+        let mut sh = Shell::new();
+        sh.max_history_len(4);
+        // `help` is a builtin: its own output cannot be confused with the
+        // history listing below.
+        let out = run(&mut sh, b"help XXXXXXXXXXXX\nhistory\r\n");
+        // The listing shows the entry truncated to 4 bytes.
+        assert!(out.contains("   1  help\r\n"), "{out:?}");
+        assert!(!out.contains("   1  help "), "{out:?}");
     }
 }

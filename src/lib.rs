@@ -10,7 +10,9 @@
 //! * `Tab` completion of command names and per-command argument completion
 //!   (fixed option lists or custom completer callbacks), with bash-style
 //!   common-prefix insertion and candidate listing.
-//! * Command history (Up/Down), configurable size.
+//! * Command history (Up/Down) with configurable entry count
+//!   ([`Shell::max_history`]) and per-entry length
+//!   ([`Shell::max_history_len`]).
 //! * Ctrl-C interrupts a *running* command (its handler future is dropped).
 //! * Simple command registration with closures; commands get an output handle
 //!   ([`Io`]) so they can `await` slow writes (e.g. to USB CDC).
@@ -93,6 +95,10 @@
 //!
 //! # Notes and limitations
 //!
+//! * Memory use is bounded: a typed line is capped at [`Shell::max_line_len`]
+//!   bytes (further characters are rejected with a `BEL`), and each history
+//!   entry is truncated to [`Shell::max_history_len`] bytes, so long pasted
+//!   input cannot exhaust the heap.
 //! * Command handlers return [`BoxFuture`] (wrap an `async move` block in
 //!   `Box::pin`). This type-erases per-command future types so they can live
 //!   in one table. The boxed futures are not `Send`; this matches embassy's

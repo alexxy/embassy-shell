@@ -44,6 +44,39 @@ impl defmt::Format for Error {
     }
 }
 
+impl Error {
+    /// Short, allocation-free description used by the shell's error line.
+    ///
+    /// Unlike [`Display`](core::fmt::Display) this returns a `&'static str`
+    /// so the shell never has to run `core::fmt` (or allocate a buffer) just
+    /// to report a failed command.
+    pub fn message(&self) -> &'static str {
+        match self {
+            Error::Other => "shell error",
+            Error::Io(kind) => match *kind {
+                ErrorKind::NotFound => "not found",
+                ErrorKind::PermissionDenied => "permission denied",
+                ErrorKind::ConnectionRefused => "connection refused",
+                ErrorKind::ConnectionReset => "connection reset",
+                ErrorKind::ConnectionAborted => "connection aborted",
+                ErrorKind::NotConnected => "not connected",
+                ErrorKind::AddrInUse => "address in use",
+                ErrorKind::AddrNotAvailable => "address not available",
+                ErrorKind::BrokenPipe => "broken pipe",
+                ErrorKind::AlreadyExists => "already exists",
+                ErrorKind::InvalidInput => "invalid input",
+                ErrorKind::InvalidData => "invalid data",
+                ErrorKind::TimedOut => "timed out",
+                ErrorKind::Interrupted => "interrupted",
+                ErrorKind::Unsupported => "unsupported",
+                ErrorKind::OutOfMemory => "out of memory",
+                ErrorKind::WriteZero => "write zero",
+                _ => "io error",
+            },
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

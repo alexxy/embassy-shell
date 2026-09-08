@@ -24,7 +24,8 @@ Think [`ushell`](https://github.com/dotcypress/ushell), but alive, native
 * **Tab completion** — completes command names; per-command argument
   completion from fixed option lists or custom callbacks. Inserts the common
   prefix and lists candidates when ambiguous, like bash.
-* **History** — `Up`/`Down` navigation, configurable size, `history`
+* **History** — `Up`/`Down` navigation, configurable number of entries
+  (`max_history`) and per-entry length (`max_history_len`), `history`
   built-in.
 * **Ctrl-C interrupts a running command** — the handler future is dropped
   (handlers should be cancel-safe).
@@ -45,7 +46,7 @@ Think [`ushell`](https://github.com/dotcypress/ushell), but alive, native
 
 ```toml
 # Lean configuration: no UTF-8 decoding, no logging.
-embassy-shell = { version = "0.1", default-features = false }
+embassy-shell = { version = "0.2", default-features = false }
 ```
 
 ## Quick start
@@ -231,9 +232,43 @@ The shell itself is transport-agnostic: the UART examples plug a small
 do the same over embassy-usb endpoints (see `CdcReader`/`CdcWriter`), and the
 ESP examples use the HAL's async `Rx`/`Tx` halves directly.
 
+## Memory footprint
+
+The core heap working set is kept small and — crucially — bounded:
+
+* **Line length cap** (`max_line_len`, default 128 bytes): once the input
+  buffer is full, further characters are rejected with a `BEL` instead of
+  growing it. Without this, a single pasted 1000-character line could demand
+  ~7 KB of heap.
+* **History truncation** (`max_history_len`, default 64 bytes): each stored
+  entry is cut to this length (at a character boundary), so the history
+  queue can never blow up on long lines.
+* **No `format!` in the shell core** — prompts, ANSI cursor moves, `help` /
+  `history` output and error lines are emitted as several small writes into
+  fixed stack buffers, so rendering a line allocates nothing.
+* **Reusable token scratch** — tokenization writes into a long-lived
+  `Vec<String>` whose slots are reused across lines, so parsing stops
+  allocating once the largest line seen so far has been handled.
+* **Allocation-free option completion** — commands registered with
+  `add_command_with_options` complete their arguments without boxing a
+  closure or building `String` candidates.
+
+```rust
+# use embassy_shell::Shell;
+let mut shell = Shell::new();
+shell.max_history(16)      // remember at most 16 lines
+     .max_history_len(48)  // store at most 48 bytes of each
+     .max_line_len(80);    // cap a typed line at 80 bytes
+```
+
+On an STM32F411 the release UART example lands at ~35 KB of flash and ~10.5 KB
+of RAM (with an 8 KB heap). Disabling `unicode` (see
+[Cargo features](#cargo-features)) saves about another 1 KB of flash.
+
 ## Notes & limitations
 
-* `alloc` is required (command table, line buffer, history).
+* `alloc` is required (command table, line buffer, history); the working set
+  is bounded by `max_line_len` / `max_history` / `max_history_len`.
 * Ctrl-C cancels the handler future: don't hold non-cancel-safe state
   across `.await` inside a command.
 * Bytes typed *while* a command runs are not echoed; only the most recent

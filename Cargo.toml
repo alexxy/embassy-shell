@@ -1,6 +1,6 @@
 [package]
 name = "embassy-shell"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "no_std async interactive shell for embassy: bash-like line editing, tab completion and history over any embedded-io-async transport (UART, USB CDC)"

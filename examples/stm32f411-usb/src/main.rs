@@ -61,7 +61,9 @@ fn defmt_panic() -> ! {
     }
 }
 
-const HEAP_SIZE: usize = 16 * 1024;
+// The shell's heap working set is bounded (max_line_len / max_history
+// caps), so a modest pool is enough even for worst-case input.
+const HEAP_SIZE: usize = 8 * 1024;
 
 #[global_allocator]
 static HEAP: LlffHeap = LlffHeap::empty();

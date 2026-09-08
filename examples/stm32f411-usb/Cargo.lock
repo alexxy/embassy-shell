@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "embassy-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "embedded-io 0.7.1",
  "embedded-io-async 0.7.0",

@@ -1,12 +1,29 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+/// Make sure slot `i` exists in `tokens` and is empty, returning nothing:
+/// pushes a new `String` if `i == tokens.len()`, otherwise clears the
+/// existing entry so its heap allocation is reused.
+fn reset_slot(tokens: &mut Vec<String>, i: usize) {
+    if i == tokens.len() {
+        tokens.push(String::new());
+    } else {
+        tokens[i].clear();
+    }
+}
+
 /// Split a command line into tokens, with bash-like support for
 /// single quotes (`'...'`, literal), double quotes (`"..."`, with `\"` and
 /// `\\` escapes) and backslash escapes outside quotes.
-pub(crate) fn tokenize(line: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut cur = String::new();
+///
+/// Tokens are written into a caller-owned `Vec<String>` whose existing slots
+/// are reused across calls (each slot is cleared only when a new token
+/// starts); the return value is the token count, so callers use
+/// `&tokens[..n]` and the vector is never shrunk. Repeated calls on a
+/// long-lived vector therefore stop allocating once the largest line seen
+/// so far has been processed.
+pub(crate) fn tokenize_into(line: &str, tokens: &mut Vec<String>) -> usize {
+    let mut i: usize = 0;
     let mut started = false;
     let mut chars = line.chars();
 
@@ -14,51 +31,69 @@ pub(crate) fn tokenize(line: &str) -> Vec<String> {
         match c {
             ' ' | '\t' => {
                 if started {
-                    tokens.push(core::mem::take(&mut cur));
+                    i += 1;
                     started = false;
                 }
             }
             '\'' => {
-                started = true;
+                if !started {
+                    reset_slot(tokens, i);
+                    started = true;
+                }
                 loop {
                     match chars.next() {
                         None | Some('\'') => break,
-                        Some(c) => cur.push(c),
+                        Some(c) => tokens[i].push(c),
                     }
                 }
             }
             '"' => {
-                started = true;
+                if !started {
+                    reset_slot(tokens, i);
+                    started = true;
+                }
                 loop {
                     match chars.next() {
                         None | Some('"') => break,
                         Some('\\') => match chars.next() {
-                            Some(n @ ('"' | '\\' | '$' | '`')) => cur.push(n),
+                            Some(n @ ('"' | '\\' | '$' | '`')) => tokens[i].push(n),
                             Some(n) => {
-                                cur.push('\\');
-                                cur.push(n);
+                                tokens[i].push('\\');
+                                tokens[i].push(n);
                             }
                             None => break,
                         },
-                        Some(c) => cur.push(c),
+                        Some(c) => tokens[i].push(c),
                     }
                 }
             }
             '\\' => {
-                started = true;
+                if !started {
+                    reset_slot(tokens, i);
+                    started = true;
+                }
                 if let Some(n) = chars.next() {
-                    cur.push(n);
+                    tokens[i].push(n);
                 }
             }
             c => {
-                started = true;
-                cur.push(c);
+                if !started {
+                    reset_slot(tokens, i);
+                    started = true;
+                }
+                tokens[i].push(c);
             }
         }
     }
-    if started {
-        tokens.push(cur);
-    }
+    if started { i + 1 } else { i }
+}
+
+/// Allocating convenience wrapper around [`tokenize_into`], for tests.
+#[cfg(test)]
+pub(crate) fn tokenize(line: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let n = tokenize_into(line, &mut tokens);
+    tokens.truncate(n);
     tokens
 }
 
@@ -126,6 +161,41 @@ mod tests {
     fn tokenize_empty_quoted_token() {
         assert_eq!(tokenize(r#"" " a"#), [" ", "a"]);
         assert_eq!(tokenize("'' b"), ["", "b"]);
+    }
+
+    #[test]
+    fn tokenize_into_matches_tokenize() {
+        let cases = [
+            "  hello   world  ",
+            r#"a "b c" 'd e' f\ g"#,
+            r#"" " a"#,
+            "'' b",
+            "",
+            "   ",
+            "one",
+        ];
+        let mut reused = Vec::new();
+        for line in cases {
+            let n = tokenize_into(line, &mut reused);
+            assert_eq!(&reused[..n], &tokenize(line)[..], "line: {line:?}");
+        }
+    }
+
+    #[test]
+    fn tokenize_into_reuses_slots() {
+        let mut tokens = Vec::new();
+        assert_eq!(tokenize_into("alpha beta gamma", &mut tokens), 3);
+        assert_eq!(&tokens[..3], ["alpha", "beta", "gamma"]);
+        let ptr = tokens[0].as_str().as_ptr();
+
+        // Fewer, shorter tokens reuse the existing allocations.
+        assert_eq!(tokenize_into("x y", &mut tokens), 2);
+        assert_eq!(&tokens[..2], ["x", "y"]);
+        assert_eq!(tokens[0].as_str().as_ptr(), ptr);
+
+        // Growing back does not corrupt stale slots.
+        assert_eq!(tokenize_into("gamma", &mut tokens), 1);
+        assert_eq!(&tokens[..1], ["gamma"]);
     }
 
     #[test]
